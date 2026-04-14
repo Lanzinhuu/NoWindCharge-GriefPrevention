@@ -4,6 +4,8 @@ import com.sk89q.worldedit.bukkit.BukkitAdapter;
 import com.sk89q.worldguard.protection.ApplicableRegionSet;
 import com.sk89q.worldguard.protection.managers.RegionManager;
 import com.sk89q.worldguard.protection.regions.ProtectedRegion;
+import me.ryanhamshire.GriefPrevention.Claim;
+import me.ryanhamshire.GriefPrevention.GriefPrevention;
 import org.bukkit.Material;
 import org.bukkit.entity.EntityType;
 import org.bukkit.entity.Player;
@@ -47,16 +49,30 @@ public class WindChargeListener implements Listener {
             return;
         }
 
+        // --- Verificação WorldGuard ---
         if (isInExcludedRegion(player)) {
             event.setCancelled(true);
             String message = plugin.getConfig().getString("deny-message", "&cYou cannot use this item in region &e%region%&c!");
             player.sendMessage(plugin.formatMessage(message.replace("%region%", getRegionName(player))));
+            return;
+        }
+
+        // --- Verificação GriefPrevention ---
+        if (org.bukkit.Bukkit.getPluginManager().getPlugin("GriefPrevention") != null) {
+            Claim claim = GriefPrevention.instance.dataStore.getClaimAt(player.getLocation(), true, null);
+            if (claim != null) {
+                // Verifica se o jogador tem permissão de construção (ou uso de itens) no claim
+                String noBuildReason = claim.allowBuild(player, Material.WIND_CHARGE);
+                if (noBuildReason != null) {
+                    event.setCancelled(true);
+                    player.sendMessage(plugin.formatMessage("&cVocê não tem permissão para usar Carga de Vento neste terreno protegido!"));
+                }
+            }
         }
     }
 
     @EventHandler
     public void onWindChargeExplosion(ExplosionPrimeEvent event) {
-        // Check if the plugin is completely disabled for WIND_CHARGE
         if (plugin.getConfig().getBoolean("disable-completely", false)) {
             event.setCancelled(true);
             return;
@@ -64,9 +80,22 @@ public class WindChargeListener implements Listener {
 
         if (event.getEntity().getType() == EntityType.WIND_CHARGE || event.getEntity().getType() == EntityType.BREEZE_WIND_CHARGE) {
             for (Player player : event.getEntity().getWorld().getPlayers()) {
-                if (player.getLocation().distanceSquared(event.getEntity().getLocation()) < 16 && isInExcludedRegion(player)) {
-                    event.setCancelled(true);
-                    return;
+                if (player.getLocation().distanceSquared(event.getEntity().getLocation()) < 16) {
+                    
+                    // Se estiver em região do WorldGuard
+                    if (isInExcludedRegion(player)) {
+                        event.setCancelled(true);
+                        return;
+                    }
+
+                    // Se estiver em terreno do GriefPrevention
+                    if (org.bukkit.Bukkit.getPluginManager().getPlugin("GriefPrevention") != null) {
+                        Claim claim = GriefPrevention.instance.dataStore.getClaimAt(event.getEntity().getLocation(), true, null);
+                        if (claim != null && claim.allowBuild(player, Material.WIND_CHARGE) != null) {
+                            event.setCancelled(true);
+                            return;
+                        }
+                    }
                 }
             }
         }
